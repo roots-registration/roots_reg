@@ -1,0 +1,798 @@
+<?php
+/**
+ * @file
+ * Code for the roots_reg feature.
+ */
+
+include_once 'roots_reg.features.inc';
+/**
+ * @file roots_reg.module
+ * TODO: Enter file description here.
+ */
+
+
+/**
+ * Add pages to checkout process
+ * Implements hook_commerce_checkout_page_info().
+ */
+function roots_reg_commerce_checkout_page_info() {
+  $checkout_pages = array();
+
+  $checkout_pages['roots_reg_personal_info'] = array(
+    'name' => t('Personal Info'),
+    'title' => t('Personal Info'),
+    'help' => t('Fill in child and family info here'),
+    'weight' => -10,
+    'status_cart' => FALSE,
+    'buttons' => TRUE,
+    'weight' => -150
+    /**    'file' => 'cool_registrations_panes.inc',
+     *   'base' => 'cool_registrations_family_info',
+     */
+  );
+  $checkout_pages['roots_reg_children_info'] = array(
+    'name' => t('Child Information'),
+    'title' => t('Child Information'),
+    'help' => t('@todo add help text'),
+    'weight' => 0,
+    'status_cart' => FALSE,
+    'buttons' => TRUE,
+    'weight' => -125
+  );
+  $checkout_pages['roots_reg_sign_up'] = array(
+    'name' => t('Registrations'),
+    'title' => t('Registrations'),
+    'help' => t('@todo add help text'),
+    'weight' => 0,
+    'status_cart' => FALSE,
+    'buttons' => TRUE,
+    'weight' => -100
+  );
+  return $checkout_pages;
+}
+
+/**
+ * Implements hook_commerce_checkout_pane_info().
+ *
+ * Make these checkout panes available to place in the checkout pages
+ * docs don't say to put this in a function but they didn't say to put the above in a function either...
+ */
+function roots_reg_commerce_checkout_pane_info() {
+  $checkout_panes = array();
+
+  $checkout_panes['roots_reg_personal_pane'] = array(
+    'title' => t('Personal Info'),
+    'base' => 'roots_reg_personal_pan',
+    'page' => 'roots_reg_personal_info',
+    'weight' => '-10',
+    'fieldset' => TRUE,
+  );
+  $checkout_panes['roots_reg_children_pane'] = array(
+    'title' => t('Child Info'),
+    'base' => 'roots_reg_personal_pan2',
+    'page' => 'roots_reg_children_info',
+    'weight' => '-10',
+    'fieldset' => TRUE,
+  );
+  $checkout_panes['roots_reg_signup_info_pane'] = array(
+    'title' => t('Registrations'),
+    'file' => 'roots_reg_sign_pane.inc',
+    'page' => 'roots_reg_sign_up',
+  );
+
+
+  return $checkout_panes;
+}
+
+/**
+ * Checkout pane callback: presents pane which content is set via rules.
+ */
+function roots_reg_personal_pan_checkout_form($form, &$form_state, $checkout_pane, $order) {
+  global $user;
+  $redhen_contact = redhen_contact_load_by_user($user);
+  if (!$redhen_contact) {
+    $redhen_contact = redhen_contact_create(array('type' => 'adult'));
+    $redhen_contact->setEmail($user->mail);
+    $redhen_contact->save();
+  }
+  $pane_form['redhen_contact'] = array(
+    '#type' => 'value',
+    '#value' => $redhen_contact,
+  );
+  // Add the field widgets for the profile.
+  module_load_include('inc', 'redhen_contact', 'includes/redhen_contact.forms');
+  // Add the field widgets for the profile.
+  $pane_form = redhen_contact_contact_form($pane_form, $form_state, $redhen_contact);
+
+  unset($pane_form['actions']);
+  return $pane_form;
+}
+
+
+/**
+ * Validate callback for roots_reg_personal_pane
+ *
+ * @see roots_reg_commerce_checkout_pane_info().
+ */
+function roots_reg_personal_pan_checkout_form_validate($form, &$form_state, $checkout_pane, $order) {
+  return _roots_contact_form_validate($form, $form_state);
+}
+
+/**
+ * Submit for roots_reg_personal_pane
+ *
+ * @see roots_reg_commerce_checkout_pane_info().
+ */
+function roots_reg_personal_pan_checkout_form_submit($form, &$form_state, $checkout_pane, $order) {
+  _roots_reg_contact_form_submit($form, $form_state);
+}
+
+/**
+ * Checkout pane callback: presents pane which content is set via rules.
+ */
+function roots_reg_personal_pan2_checkout_form($form, &$form_state, $checkout_pane, $order) {
+  global $user;
+
+  $redhen_contact = redhen_contact_load_by_user($user);
+  if (!$redhen_contact) {
+    _roots_reg_no_contact_error($user);
+  }
+  $contact_id = _root_reg_get_qs_contact_id();
+  $query_param = drupal_get_query_parameters();
+  if ($contact_id) {
+    // Show contact edit.
+    $child_contact = redhen_contact_load($contact_id);
+    // Call custom access callback function to determine if this contact is editable.
+    if (redhen_permissioned_relations_access('update', $child_contact)) {
+
+      $form['redhen_contact'] = array(
+        '#type' => 'value',
+        '#value' => $child_contact,
+      );
+      module_load_include('inc', 'redhen_contact', 'includes/redhen_contact.forms');
+      // Add the field widgets for the profile.
+      $form = redhen_contact_contact_form( $form, $form_state, $child_contact);
+
+      $form['order'] = array(
+        '#type' => 'value',
+        '#value' => $order,
+      );
+      $form['actions']['submit']['#submit'] = array(
+        '_roots_reg_children_info_pane_contact_submit',
+      );
+      $form['actions']['submit']['#validate'] = array(
+        '_roots_contact_form_validate',
+      );
+
+    }
+  }
+  elseif (!empty($query_param['child_contact_add'])) {
+    // Show contact add form.
+    $child_contact = redhen_contact_create(array('type' => 'kid'));
+
+
+    $form['redhen_contact'] = array(
+      '#type' => 'value',
+      '#value' => $child_contact,
+    );
+    module_load_include('inc', 'redhen_contact', 'includes/redhen_contact.forms');
+    // Add the field widgets for the profile.
+    $form = redhen_contact_contact_form( $form, $form_state, $child_contact);
+
+
+    // Get actual relationship field from Redhen Relation entity so that changes automatically update.
+    $field_instance = field_info_instance('relation', 'field_parentchild_relationship', 'child_minor');
+    $field = field_info_field('field_parentchild_relationship');
+    $form['relationship'] = array(
+      '#type' => 'select',
+      '#title' => $field_instance['label'],
+      '#options' => $field['settings']['allowed_values'],
+      '#weight' => -100,
+    );
+    $form['order'] = array(
+      '#type' => 'value',
+      '#value' => $order,
+    );
+    $form['actions']['submit']['#submit'] = array(
+      '_roots_reg_children_info_pane_contact_submit',
+      '_roots_reg_children_info_pane_add_relationship',
+    );
+    $form['actions']['submit']['#validate'] = array(
+      '_roots_contact_form_validate',
+    );
+  }
+  else {
+    // Show list of child contact by Views.
+    $view_output = views_embed_view('parents_child_relation', 'default', $order->order_id);
+    $form['markup'] = array(
+      '#type' => 'markup',
+      '#markup' => $view_output,
+    );
+
+    $form['add_link'] = array(
+      '#type' => 'link',
+      '#title' => t('Add new child contact'),
+      '#href' => 'checkout/' . $order->order_id . '/roots_reg_children_info' ,
+      '#options' => array('query' => array('child_contact_add' => TRUE)),
+    );
+  }
+  return $form;
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function roots_reg_form_commerce_checkout_form_roots_reg_children_info_alter(&$form, &$form_state, $form_id) {
+  $query_param = drupal_get_query_parameters();
+  $order = $form_state['order'];
+  if ($contact_id = _root_reg_get_qs_contact_id() || !empty($query_param['child_contact_add'])) {
+
+    unset($form['buttons']);
+    $form['roots_reg_children_info_pane']['actions']['cancel'] = array(
+      '#type' => 'link',
+      '#title' => t('Cancel'),
+      '#href' => 'checkout/' . $order->order_id . '/roots_reg_children_info' ,
+    );
+  }
+  else {
+    $results = views_get_view_result('parents_child_relation', 'default', $order->order_id);
+    if (empty($results)) {
+
+      unset($form['buttons']['continue']);
+      unset($form['buttons']['back']['#prefix']);
+    }
+  }
+  //
+}
+/**
+ * Get Contact id from URL query string.
+ *
+ * @return int
+ */
+function _root_reg_get_qs_contact_id() {
+  $query_param = drupal_get_query_parameters();
+  if (isset($query_param['contact_id'])) {
+    return $query_param['contact_id'];
+  }
+  return NULL;
+}
+
+/**
+ * Custom submit handler for saving a contact in checkout
+ *
+ * @param $form
+ * @param $form_state
+ */
+function _roots_reg_children_info_pane_contact_submit($form, &$form_state) {
+  _roots_reg_contact_form_submit($form, $form_state);
+  $order = $form_state['values']['order'];
+  $form_state['redirect'] = 'checkout/' . $order->order_id . '/roots_reg_children_info';
+}
+
+/**
+ * Submit callback for adding child via Checkout to add relation to current user.
+ *
+ * @roots_reg_children_info_pane_checkout_form().
+ *
+ * @param $form
+ * @param $form_state
+ *
+ * @throws \Exception
+ */
+function _roots_reg_children_info_pane_add_relationship($form, &$form_state) {
+  global $user;
+  $user_redhen_contact = redhen_contact_load_by_user($user);
+  if ($user_redhen_contact) {
+    $child_contact = $form_state['redhen_contact'];
+    $endpoints = array(
+      array('entity_type' => 'redhen_contact', 'entity_id' => $child_contact->contact_id),
+      array('entity_type' => 'redhen_contact', 'entity_id' => $user_redhen_contact->contact_id),
+    );
+    $relation = relation_create('child_minor', $endpoints, $user);
+    $relation_wrapper = entity_metadata_wrapper('relation', $relation);
+
+    $relationship = $form_state['values']['relationship'];
+    $relation_wrapper->field_parentchild_relationship->set($relationship);
+    relation_save($relation, $user);
+
+  }
+  else {
+    _roots_reg_no_contact_error($user);
+  }
+}
+/**
+ * Handle calling Redhen form submit function.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function _roots_reg_contact_form_submit($form, &$form_state) {
+  _root_reg_create_redhen_contact_form_state($form_state);
+  module_load_include('inc', 'redhen_contact', 'includes/redhen_contact.forms');
+  redhen_contact_contact_form_submit($form, $form_state);
+  unset($form_state['redirect']);
+}
+/**
+ * Update $form_state to values that the Redhen module is expecting.
+ *
+ * @param $form_state
+ *
+ * @return array
+ */
+function _root_reg_create_redhen_contact_form_state(&$form_state) {
+  $form_state['redhen_contact'] = $form_state['values']['redhen_contact'];
+  foreach ($form_state['values']['name'] as $name_part => $name_value) {
+    $form_state['values'][$name_part] = $name_value;
+    unset($form_state['values']['name'][$name_part]);
+  }
+  return;
+}
+/**
+ * Handle calling Redhen module form validation functions.
+ *
+ * @param $form
+ * @param $form_state
+ *
+ * @return bool
+ */
+function _roots_contact_form_validate($form, $form_state) {
+  _root_reg_create_redhen_contact_form_state($form_state);
+  module_load_include('inc', 'redhen_contact', 'includes/redhen_contact.forms');
+  redhen_contact_contact_form_validate($form, $form_state);
+  $errors = form_get_errors();
+  if ($errors) {
+    return FALSE;
+  }
+  return TRUE;
+}
+/**
+ * Throw an exception because current user doesn't have a redhen contact.
+ *
+ * This should never during the checking process because it should have been
+ * created by this point.
+ *
+ * @param $user
+ *
+ * @throws \Exception
+ */
+function _roots_reg_no_contact_error($user) {
+// @todo Better error messsage
+  watchdog('roots_reg', 'Current User doesn\'t have a redhen contact: @username', array('@username' => $user->name), WATCHDOG_CRITICAL);
+  throw new Exception('System Error.');
+}
+function _roots_reg_get_all_children_for_contact($contact ) {
+  // @TODO why does filtering on "active" return no relations
+  $relations = redhen_relation_relations($contact, 'child_minor');
+  $contacts = array();
+  foreach ($relations as $relation) {
+    $contacts[] = array_shift($relation);
+  }
+
+  return $contacts;
+}
+
+/**
+ * Implements hook_commerce_checkout_complete().
+ */
+function roots_reg_commerce_checkout_complete($order) {
+  _roots_reg_add_adult_registration($order);
+  $registration_wrappers = _root_reg_get_registrations_for_order($order->order_id);
+  foreach ($registration_wrappers as $node_wrapper) {
+    $node_wrapper->status->set(1);
+    $node_wrapper->save();
+  }
+
+
+}
+
+/**
+ * Create a registration for the current user's contact for all "adult" programs in order.
+ *
+ * @param $order
+ */
+function _roots_reg_add_adult_registration($order) {
+  global $user;
+  $redhen_contact = redhen_contact_load_by_user($user);
+  $line_items = _roots_reg_get_line_items_on_order($order, 'Adult');
+  // @todo Do we need to check here to make sure they don't have 2 or more registrations for the same adult program
+  foreach ($line_items as $line_item_wrapper) {
+    /* @var EntityDrupalWrapper $line_item_wrapper */
+    $product_id = $line_item_wrapper->commerce_product->getIdentifier();
+    _roots_reg_create_registration_node($product_id, $redhen_contact->contact_id, $line_item_wrapper->getIdentifier());
+  }
+}
+/**
+ * Retrieve program_registration nodes that reference this order_id
+ * @param $order_id
+ *
+ * @return EntityMetadataWrapper
+ */
+function _root_reg_get_registrations_for_order($order_id) {
+  $node_wrappers = array();
+  $query = new EntityFieldQuery();
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order_id);
+  $line_item_ids = $order_wrapper->commerce_line_items->raw();
+  $query->entityCondition('entity_type', 'node')
+    ->entityCondition('bundle', 'program_registration')
+    ->fieldCondition('field_line_item', 'target_id', $line_item_ids);
+  $results = $query->execute();
+  if ($results['node']) {
+    // Found nodes
+    foreach ($results['node'] as $node_info) {
+      $node_wrappers[] = entity_metadata_wrapper('node', $node_info->nid);
+    }
+  }
+  return $node_wrappers;
+}
+
+/**
+ * Get Line Items on order for an audience type.
+ *
+ * @param $order
+ * @param $audience_term_name
+ *
+ * @return array
+ *   Keys are line item ids
+ *   Values are Product label
+ */
+function _roots_reg_get_line_items_on_order($order, $audience_term_name) {
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  $line_items = array();
+  /* @var EntityDrupalWrapper $commerce_line_item */
+  foreach ($order_wrapper->commerce_line_items as $commerce_line_item) {
+    $bundle =$commerce_line_item->getBundle();
+    if (in_array($bundle, array('regular_program', 'long_term_program'))) {
+      /* @var EntityDrupalWrapper $product_wrapper */
+      $product_wrapper = $commerce_line_item->commerce_product;
+      // Check to make sure this is Youth Product
+      $terms = taxonomy_get_term_by_name($audience_term_name, 'audience');
+      $term = array_pop($terms);
+      $product_tids = $product_wrapper->field_audience->raw();
+      $product_tid = array_pop($product_tids);
+      if ($product_tid == $term->tid) {
+        $line_items[$commerce_line_item->getIdentifier()] = $commerce_line_item;
+      }
+    }
+  }
+  return $line_items;
+}
+
+/**
+ * @param $product_id
+ * @param $contact_id
+ * @param $line_item_id
+ */
+function _roots_reg_create_registration_node($product_id, $contact_id, $line_item_id) {
+  global $user;
+  $node_values = array(
+    'type' => 'program_registration',
+    'uid' => $user->uid,
+    'status' => 0
+  );
+  $reg_node = entity_create('node', $node_values);
+  $reg_node_wrapper = entity_metadata_wrapper('node', $reg_node);
+  $reg_node_wrapper->field_program->set($product_id);
+  $reg_node_wrapper->field_registrant->set($contact_id);
+  $reg_node_wrapper->field_line_item->set($line_item_id);
+  $reg_node_wrapper->save();
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ *
+ * Form id = redhen_contact_contact_form
+ * Unrequire certain fields on Red Hen Contact.
+ * Allow admins to add contacts and not require all fields.
+ * *** Important ***
+ * During check the form id will not be redhen_contact_contact_form so this logic
+ * will not happen when showing Contact forms in checkout.
+ * This IS intentional in the checkout process all required fields should be required.
+ *
+ * @todo Might want to check for role to only unrequire for certain roles.
+ */
+function roots_reg_form_redhen_contact_contact_form_alter(&$form, &$form_state, $form_id) {
+  // @todo Add all fields to array that you want to unrequire.
+  $unrequire_fields = array(
+    'field_contact_1_name'
+  );
+  foreach ($unrequire_fields as $field_name) {
+    if (isset($form[$field_name])) {
+      _roots_reg_unrequire_form_element($form[$field_name]);
+    }
+  }
+}
+
+/**
+ * Implements hook_form_FOMR_ID_alter().
+ */
+function roots_reg_form_user_register_form_alter(&$form, &$form_state, $form_id) {
+  $redhen_elements = &$form['redhen_contact']['form'];
+  _roots_reg_alter_redhen_reg_form($redhen_elements);
+}
+
+/**
+ * Hide all elements besides name on Redhen form when used in Registration.
+ * @param $elements
+ */
+function _roots_reg_alter_redhen_reg_form(&$elements) {
+  $all_elements = element_children($elements);
+  foreach($all_elements as $key) {
+    if ($key != 'name') {
+      $elements[$key]['#access'] = FALSE;
+    }
+  }
+}
+/**
+ * Make form element and all child elements unrequired
+ * @param array $form
+
+ * @param boolean $must_match
+ */
+function _roots_reg_unrequire_form_element(&$form_element) {
+  if (!empty($form_element['#required'])) {
+    $form_element['#required'] = FALSE;
+  }
+  $child_keys = element_children($form_element);
+  foreach ($child_keys as $key) {
+    _roots_reg_unrequire_form_element($form_element[$key]);
+  }
+}
+
+/**
+ * Implements hook_entity_presave().
+ *
+ * Set dates to actual camp dates
+ *
+ *function roots_reg_entity_presave($entity, $type) {
+ *  if ($type == 'commerce_recurring') {
+ *    $recurring_wrapper  = entity_metadata_wrapper('commerce_recurring', $entity);
+ *    $camp_date = intval($recurring_wrapper->commerce_recurring_ref_product->field_program_date->value->value());
+ *    $recurring_wrapper->due_date->set($camp_date);
+ *    $recurring_wrapper->end_date->set($camp_date);
+ *  }
+ *}
+ */
+
+/**
+ * Implements hook_commerce_checkout_router().
+ *
+ * Make sure the customer skips pages they shouldn't see based on what is in the order.
+ */
+function roots_reg_commerce_checkout_router($order, $checkout_page) {
+  if (!_roots_reg_show_checkout_page($order, $checkout_page['page_id'])) {
+    if ($force_page = _roots_reg_find_force_checkout_page($order, $checkout_page)) {
+      // Save direction as forward before order is saved in commerce_order_status_update
+      $order->data['roots_reg_direction'] = 'forwards';
+      $order = commerce_order_status_update($order, 'checkout_' . $force_page, FALSE, FALSE);
+      // Redirect to the URL for the new checkout page.
+      $target_uri = commerce_checkout_order_uri($order);
+      return drupal_goto($target_uri);
+    }
+  }
+}
+
+/**
+ * Find the page the customer should be forced to so that don't see pages they shouldn't
+ *
+ * @param $order
+ * @param $current_page
+ *
+ * @return page_id
+ */
+function _roots_reg_find_force_checkout_page($order, $current_page) {
+  $page_ids = array_keys(commerce_checkout_pages());
+  $force_page = NULL;
+  // If the current direction is backwards reverse the array to look through pages in the other direction.
+  if (isset($order->data['roots_reg_direction']) && $order->data['roots_reg_direction'] == 'backwards') {
+    $page_ids = array_reverse($page_ids);
+  }
+
+  $force_page = _roots_reg_next_checkout_page_to_show($order, $current_page['page_id'], $page_ids);
+  if (!$force_page && !_roots_reg_show_checkout_page($order, $current_page['page_id'])) {
+    $page_ids = array_reverse($page_ids);
+    $force_page = _roots_reg_next_checkout_page_to_show($order, $current_page['page_id'], $page_ids);
+  }
+  return $force_page;
+}
+
+/**
+ * @param $order
+ * @param $current_page
+ * @param $page_ids
+ *
+ * @return mixed
+ */
+function _roots_reg_next_checkout_page_to_show($order, $current_page_id, $page_ids) {
+  $force_page = NULL;
+  $current_position = array_search($current_page_id, $page_ids);
+  // Loop through and find the first page_id they should see.
+  while (isset($page_ids[++$current_position])) {
+    if (_roots_reg_show_checkout_page($order, $page_ids[$current_position])) {
+      $force_page = $page_ids[$current_position];
+      break;
+    }
+  }
+  return $force_page;
+}
+
+/**
+ * Determine if the customer for the current order should see a certain page.
+ *
+ * Currently looking only at adult and youth products.
+ * @param $order
+ * @param $page_id
+ *
+ * @return bool
+ */
+function _roots_reg_show_checkout_page($order, $page_id) {
+  if ($page_id == 'roots_reg_personal_info') {
+    if (!_roots_reg_rule_condition_order_has_term($order, 'Adult')) {
+      return FALSE;
+    }
+  }
+  if ($page_id == 'roots_reg_children_info' || $page_id == 'roots_reg_sign_up') {
+    if (!_roots_reg_rule_condition_order_has_term($order, 'Youth')) {
+      return FALSE;
+    }
+  }
+  return TRUE;
+}
+/**
+ * Checks to see if the given order is in a cart status.
+ */
+function _roots_reg_rule_condition_order_has_term($order,$term_name) {
+  $line_items = _roots_reg_get_line_items_on_order($order, $term_name);
+  return !empty($line_items);
+}
+
+/**
+ * Implements hook_block_view_alter().
+ */
+function roots_reg_block_view_alter(&$data, $block) {
+  if ($block->module == 'commerce_checkout_progress' && $block->delta == 'indication') {
+    global $user;
+    $order = commerce_cart_order_load($user->uid);
+    if (!$order) {
+      // If already at checkout the will not return order. Grab from url;
+      $order_id = arg(1);
+      $order = commerce_order_load($order_id);
+    }
+
+    $pages = &$data['content']['#items'];
+    if ($order) {
+      // Make sure to get reference(&) not copy so items can be unset.
+
+      foreach (array_keys($pages) as $page_id) {
+        if (!_roots_reg_show_checkout_page($order, $page_id)) {
+          unset($pages[$page_id]);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Implements hook_form_alter().
+ *
+ * Add our own submit function to the checkout back button.
+ *  This callback will store in the order that they are going backwards.
+ */
+function roots_reg_form_commerce_checkout_form_alter(&$form, &$form_state, $form_id) {
+  if (isset($form['buttons']['back'])) {
+
+    if (!_roots_reg_show_back_button($form_state)) {
+      $form['buttons']['back']['#access'] = FALSE;
+      if (!isset($form['buttons']['cancel'])) {
+        $form['buttons']['cancel'] = array(
+          '#type' => 'submit',
+          '#value' => t('Cancel'),
+          '#attributes' => array('class' => array('checkout-cancel')),
+          '#submit' => array('commerce_checkout_form_cancel2_submit'),
+          '#limit_validation_errors' => array(),
+          '#prefix' => 'or',
+        );
+      }
+    }
+    else {
+      if (!isset($form['buttons']['back']['#submit'])) {
+        $submit_callbacks = array();
+      }
+      else {
+        $submit_callbacks = $form['buttons']['back']['#submit'];
+      }
+      array_unshift($submit_callbacks, '_roots_reg_checkout_back_submit');
+      $form['buttons']['back']['#submit'] = $submit_callbacks;
+      // Remove validation if going backwards.
+      // @todo Check to see if removing validation on back causes any problems
+      $form['buttons']['back']['#limit_validation_errors'] = array();
+    }
+
+  }
+}
+
+function _roots_reg_show_back_button($form_state) {
+  $order = $form_state['order'];
+  $checkout_page = $form_state['checkout_page'];
+  $pages = commerce_checkout_pages();
+  $page_ids = array_keys($pages);
+  $page_ids = array_reverse($page_ids);
+  if (!_roots_reg_next_checkout_page_to_show($order, $checkout_page['page_id'], $page_ids)) {
+    return FALSE;
+
+  }
+  return TRUE;
+}
+
+/**
+ * Submit callback to save the direction the customer is going in the checkout process
+ *  when they hit the back button.
+ * @param $form
+ * @param $form_state
+ */
+function _roots_reg_checkout_back_submit($form, &$form_state) {
+ // $form_state['storage']['backwards'] = TRUE;
+  $order = $form_state['order'];
+  $order->data['roots_reg_direction'] = 'backwards';
+  commerce_order_save($order);
+}
+
+/**
+ * Implements hook_entity_property_info_alter().
+ */
+function roots_reg_entity_property_info_alter(&$info) {
+  // Move the price properties to the line item by default; as they are required
+  // default fields, this makes dealing with them more convenient.
+  $properties = array();
+
+  foreach ($info['commerce_line_item']['bundles'] as $bundle => $bundle_info) {
+    $bundle_info += array('properties' => array());
+    $properties += $bundle_info['properties'];
+  }
+
+  if (!empty($properties['commerce_product'])) {
+    $info['commerce_line_item']['properties']['commerce_product'] = $properties['commerce_product'];
+  }
+
+  $properties = array();
+
+  foreach ($info['commerce_product']['bundles'] as $bundle => $bundle_info) {
+    $bundle_info += array('properties' => array());
+    $properties += $bundle_info['properties'];
+  }
+
+  if (!empty($properties['field_program_date'])) {
+    $info['commerce_product']['properties']['field_program_date'] = $properties['field_program_date'];
+  }
+
+  if (!empty($properties['commerce_recurring_rec_price'])) {
+    $info['commerce_product']['properties']['commerce_recurring_rec_price'] = $properties['commerce_recurring_rec_price'];
+  }
+
+}
+
+
+
+
+/**
+ * Special submit handler for the cancel button to avoid processing orders.
+ */
+function commerce_checkout_form_cancel2_submit($form, &$form_state) {
+  $order = commerce_order_load($form_state['order']->order_id);
+
+  // Set the order status back to the first checkout page's status.
+  $order_state = commerce_order_state_load('cart');
+  $form_state['order'] = commerce_order_status_update($order, $order_state['default_status'], TRUE);
+
+  // Skip saving in the status update and manually save here to force a save
+  // even when the status doesn't actually change.
+  if (variable_get('commerce_order_auto_revision', TRUE)) {
+    $form_state['order']->revision = TRUE;
+    $form_state['order']->log = t('Customer manually canceled the checkout process.');
+  }
+
+  commerce_order_save($form_state['order']);
+
+  drupal_set_message(t('Checkout of your current order has been canceled and may be resumed when you are ready.'));
+
+  $form_state['redirect'] = 'cart';
+}
