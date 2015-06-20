@@ -493,7 +493,21 @@ function _roots_reg_create_registration_node($product_id, $contact_id, $line_ite
 function roots_reg_form_redhen_contact_contact_form_alter(&$form, &$form_state, $form_id) {
   // @todo Add all fields to array that you want to unrequire.
   $unrequire_fields = array(
-    'field_contact_1_name'
+	  'field_date_of_birth',
+	  'field_gender',
+	  'field_photo_release',
+	  'field_allergies_y_n',
+	  'field_allergies_list',
+	  'field_dietary_concerns',
+	  'field_under_medical_care',
+	  'field_medical_history',
+	  'field_past_operations_injury',
+	  'field_physical_restrictions',
+	  'field_tetanus_shot',
+	  'field_have_health_insurance',
+	  'field_contact_1_name',
+	  'field_contact_1_relationship'
+
   );
   foreach ($unrequire_fields as $field_name) {
     if (isset($form[$field_name])) {
