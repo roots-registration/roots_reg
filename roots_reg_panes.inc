@@ -18,6 +18,7 @@ function roots_reg_personal_pane_checkout_form($form, $form_state, $checkout_pan
     $redhen_contact->save();
   }
   _roots_reg_add_redhen_contact_form($redhen_contact, $pane_form, $form_state);
+  // Unset 'actions' set by redhen as checkout will have its own 'actions'
   unset($pane_form['actions']);
   // redhen_contact_contact_form_submit
   return $pane_form;
